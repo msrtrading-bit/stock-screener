@@ -21,4 +21,4 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Smoke-test imports
-        run: python -c "import streamlit, yfinance, pandas, numpy; print('Dependencies OK')"
+        run: python -c "import streamlit, yfinance, pandas, numpy, plotly, supabase; print('Dependencies OK')"
