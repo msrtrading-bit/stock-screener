@@ -1,6 +1,6 @@
 # NORTHSTAR — Investment Research Terminal
 
-NORTHSTAR is a dark, minimalist Streamlit research terminal for long-term equity investing. It combines a stock screener, company research card, scenario valuation, portfolio tracker, and decision journal.
+NORTHSTAR is a dark, minimalist Streamlit research terminal for long-term equity investing. It combines a stock screener, company research card, scenario valuation, and portfolio tracker.
 
 ## Run locally
 
@@ -15,7 +15,7 @@ NORTHSTAR is a dark, minimalist Streamlit research terminal for long-term equity
 
 ## Recommended private setup: persistent storage + password
 
-By default, portfolio/thesis/journal data stays in Streamlit session state. For durable storage across sessions and app restarts, configure a Supabase project.
+By default, portfolio and company thesis data stays in Streamlit session state. For durable storage across sessions and app restarts, configure a Supabase project.
 
 1. Create a Supabase project.
 2. In Supabase SQL Editor, run the script in supabase/schema.sql.
@@ -30,18 +30,17 @@ service_role_key = "YOUR_SERVICE_ROLE_KEY"
 password = "CHOOSE_A_LONG_UNIQUE_PASSWORD"
 ```
 
-4. Save secrets and reboot the app. The app will show a login screen and use the database for portfolio, journal, and thesis notes.
+4. Save secrets and reboot the app. The app will show a login screen and use the database for portfolio and thesis notes.
 5. Never put the service-role key in GitHub, app code, screenshots, or chat. Keep it only in Streamlit Secrets. The app password is a shared single-owner gate, not a full multi-user identity system.
 
 If Supabase secrets are absent, the app runs in session-only mode and warns about the limitation. **Do not enter sensitive portfolio information into a publicly accessible instance before configuring the password gate.** The local .streamlit/secrets.toml file is excluded by .gitignore.
 
 ## Current modules
 
-- **Dashboard** — target allocation, latest screening snapshot, portfolio/journal counts.
-- **Screener** — ticker universe or CSV import, heuristic factor score, coverage indicator, preliminary quality gate, filters, CSV export.
+- **Dashboard** — target allocation, latest screening snapshot, and portfolio overview.
+- **Screener** — ticker universe or CSV import, heuristic factor score, data-coverage filters, sector filters, sortable ranking, factor comparison chart, and CSV export.
 - **Company research** — price history, fundamental metrics, bear/base/bull EPS-growth and terminal-P/E scenarios, and an editable thesis.
 - **Portfolio** — holdings, price refresh, risk-layer limits, preliminary concentration checks, CSV import/export.
-- **Decision journal** — thesis, risks, decision, and invalidation condition.
 - **Methodology** — target allocation, scoring weights, risk limits, and limitations.
 
 ## NORTHSTAR starting allocation
