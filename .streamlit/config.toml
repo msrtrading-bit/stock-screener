@@ -1,0 +1,18 @@
+[theme]
+base = "dark"
+primaryColor = "#D7BB78"
+backgroundColor = "#080D14"
+secondaryBackgroundColor = "#111C29"
+textColor = "#E8EEF5"
+font = "sans serif"
+headingFont = "sans serif"
+baseFontSize = 15
+baseFontWeight = 400
+headingFontSizes = ["2.4rem", "1.8rem", "1.35rem"]
+headingFontWeights = [750, 650, 600]
+borderColor = "#263547"
+showWidgetBorder = true
+showSidebarBorder = true
+codeBackgroundColor = "#111C29"
+dataframeHeaderBackgroundColor = "#172536"
+chartCategoricalColors = ["#D7BB78", "#7FA6C9", "#8AB8A0", "#B49BD2", "#D78E7D", "#8DA3B8"]
