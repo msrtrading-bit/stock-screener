@@ -79,10 +79,15 @@ def analyze_ticker(ticker):
         debt_equity = num(info.get("debtToEquity"))
         current_ratio = num(info.get("currentRatio"))
         fcf = num(info.get("freeCashflow"))
+        revenue = num(info.get("totalRevenue"))
         fcf_yield = safe_div(fcf,cap)
+        fcf_margin = safe_div(fcf,revenue)
         forward_pe = num(info.get("forwardPE"))
         trailing_pe = num(info.get("trailingPE"))
+        pe_for_score = forward_pe if pd.notna(forward_pe) and forward_pe > 0 else (trailing_pe if pd.notna(trailing_pe) and trailing_pe > 0 else np.nan)
         peg = num(info.get("pegRatio"))
+        peg_for_score = peg if pd.notna(peg) and peg > 0 else np.nan
+        debt_equity_for_score = debt_equity if pd.notna(debt_equity) and debt_equity >= 0 else np.nan
         beta = num(info.get("beta"))
         if not hist.empty and len(hist) > 1:
             close = hist["Close"].dropna()
@@ -99,8 +104,10 @@ def analyze_ticker(ticker):
         # Sector-aware model remains a research heuristic; missing data never earns points.
         quality_parts = [score_range(roe,0.05,0.25), score_range(op_margin,0.05,0.30), score_range(gross_margin,0.20,0.70)]
         growth_parts = [score_range(revenue_growth,0.00,0.25), score_range(earnings_growth,-0.10,0.30)]
-        value_parts = [score_range(forward_pe,10,35,True), score_range(peg,0.8,3.0,True), score_range(fcf_yield,0.00,0.08)]
-        balance_parts = [score_range(debt_equity,0,200,True), score_range(current_ratio,0.8,2.5), score_range(fcf,0,5e9)]
+        # Non-positive valuation multiples are not "cheap"; they are excluded from this factor.
+        value_parts = [score_range(pe_for_score,10,35,True), score_range(peg_for_score,0.8,3.0,True), score_range(fcf_yield,0.00,0.08)]
+        # FCF margin avoids rewarding firms simply for being large; negative equity/debt ratios are not treated as low debt.
+        balance_parts = [score_range(debt_equity_for_score,0,200,True), score_range(current_ratio,0.8,2.5), score_range(fcf_margin,-0.05,0.25)]
         momentum_parts = [score_range(ret6,-0.30,0.40), score_range(ret12,-0.40,0.60)]
         factor_data = {
             "Jakość biznesu": (quality_parts, WEIGHTS["Jakość biznesu"]),
@@ -131,7 +138,7 @@ def analyze_ticker(ticker):
             "Forward P/E":forward_pe,"Trailing P/E":trailing_pe,"PEG":peg,
             "ROE":roe,"Marża operacyjna":op_margin,"Marża brutto":gross_margin,
             "Dług / kapitał (%)":debt_equity,"Current ratio":current_ratio,
-            "FCF (mld)":fcf/1e9 if pd.notna(fcf) else np.nan,"FCF yield":fcf_yield,"Beta":beta,
+            "FCF (mld)":fcf/1e9 if pd.notna(fcf) else np.nan,"FCF yield":fcf_yield,"FCF margin":fcf_margin,"Beta":beta,
             "Score jakość":factors["Jakość biznesu"],"Score wzrost":factors["Wzrost"],
             "Score wycena":factors["Wycena"],"Score bilans/FCF":factors["Bilans i FCF"],
             "Score momentum":factors["Momentum"],"Wynik systemu /100":score,
@@ -194,7 +201,7 @@ with st.sidebar:
     st.divider()
     st.markdown("**Wagi modelu**")
     for name,weight in WEIGHTS.items(): st.write(f"{name}: **{weight}%**")
-    st.caption("Wynik jest heurystyką badawczą, nie prognozą ani rekomendacją.")
+    st.caption("Wynik jest heurystyką badawczą, nie prognozą ani rekomendacją. Dane rewizji analityków nie są jeszcze podłączone, więc model obecnie nie wykorzystuje ich 5% wagi.")
 
 tabs = st.tabs(["Dashboard","Screener","Company research","Portfolio","Decision journal","Metodologia"])
 
@@ -274,7 +281,7 @@ with tabs[1]:
         shown = df[[x for x in show if x in df]].sort_values("Wynik systemu /100",ascending=False,na_position="last")
         st.dataframe(shown,use_container_width=True,hide_index=True)
         st.download_button("Eksportuj ranking CSV",df.to_csv(index=False).encode("utf-8-sig"),file_name=f"northstar_screen_{date.today().isoformat()}.csv",mime="text/csv")
-        st.caption("Wynik nie jest normalizowany do 100 przy brakujących danych. Brak danych nie jest traktowany jako pozytywny sygnał.")
+        st.caption("Wynik nie jest normalizowany do 100 przy brakujących danych. Brak danych nie jest traktowany jako pozytywny sygnał. Rewizje analityków (5% wagi) nie są jeszcze podłączone, więc maksymalne dostępne pokrycie wynosi obecnie 95%.")
 
 with tabs[2]:
     st.markdown("### Company research")
@@ -322,7 +329,7 @@ with tabs[2]:
                     ("Wzrost zysków",pct(data.get("Wzrost zysków r/r"))),
                     ("Trailing P/E",f"{data['Trailing P/E']:.1f}×" if pd.notna(num(data.get("Trailing P/E"))) else "n/d"),
                     ("PEG",f"{data['PEG']:.2f}" if pd.notna(num(data.get("PEG"))) else "n/d"),
-                    ("FCF yield",pct(data.get("FCF yield"))),
+                    ("FCF yield",pct(data.get("FCF yield"))),("FCF margin",pct(data.get("FCF margin"))),
                     ("Dług / kapitał",data.get("Dług / kapitał (%)")),
                     ("Beta",data.get("Beta"))
                 ]
@@ -347,9 +354,9 @@ with tabs[2]:
             price = num(data.get("Cena"))
             if pd.notna(future) and pd.notna(price) and price>0:
                 scenario_df = pd.DataFrame([
-                    {"Scenariusz":"Bear","Wzrost EPS":pct(bear_growth),"Końcowe P/E":bear_pe,"Wartość na koniec":money(bear_value,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(bear_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bear_value/price-1) if pd.notna(bear_value) else "n/d"},
-                    {"Scenariusz":"Base","Wzrost EPS":pct(growth),"Końcowe P/E":exit_pe,"Wartość na koniec":money(future,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(future/price-1) if pd.notna(future) else "n/d"},
-                    {"Scenariusz":"Bull","Wzrost EPS":pct(bull_growth),"Końcowe P/E":bull_pe,"Wartość na koniec":money(bull_value,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(bull_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bull_value/price-1) if pd.notna(bull_value) else "n/d"}
+                    {"Scenariusz":"Bear","Wzrost EPS":pct(bear_growth),"Końcowe P/E":bear_pe,"Wartość na koniec":money(bear_value,data.get("Waluta","USD")),"Wartość z marginesem bezpieczeństwa":money(bear_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bear_value/price-1) if pd.notna(bear_value) else "n/d"},
+                    {"Scenariusz":"Base","Wzrost EPS":pct(growth),"Końcowe P/E":exit_pe,"Wartość na koniec":money(future,data.get("Waluta","USD")),"Wartość z marginesem bezpieczeństwa":money(entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(future/price-1) if pd.notna(future) else "n/d"},
+                    {"Scenariusz":"Bull","Wzrost EPS":pct(bull_growth),"Końcowe P/E":bull_pe,"Wartość na koniec":money(bull_value,data.get("Waluta","USD")),"Wartość z marginesem bezpieczeństwa":money(bull_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bull_value/price-1) if pd.notna(bull_value) else "n/d"}
                 ])
                 st.dataframe(scenario_df,use_container_width=True,hide_index=True)
                 annualized = (future/price)**(1/years)-1 if future>0 else np.nan
