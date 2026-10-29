@@ -180,6 +180,19 @@ def fetch_market_quotes(tickers):
         return pd.DataFrame([{"Ticker": "—", "Cena": np.nan, "Zmiana dzienna (%)": np.nan, "Status": f"Źródło danych niedostępne: {str(exc)[:120]}"}])
 
 
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_price_history(ticker, period="1y"):
+    try:
+        return yf.Ticker(ticker).history(period=period, auto_adjust=True, repair=True)
+    except TypeError:
+        try:
+            return yf.Ticker(ticker).history(period=period, auto_adjust=True)
+        except Exception:
+            return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
 def get_info(ticker):
     obj = yf.Ticker(ticker)
     # Fundamentals endpoint can fail independently of price history; don't discard usable quotes.
@@ -187,10 +200,7 @@ def get_info(ticker):
         info = obj.get_info() or {}
     except Exception:
         info = {}
-    try:
-        hist = obj.history(period="5y", auto_adjust=True, repair=True)
-    except TypeError:
-        hist = obj.history(period="5y", auto_adjust=True)
+    hist = fetch_price_history(ticker, "5y")
     return info, hist
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -387,12 +397,7 @@ with tabs[0]:
         st.dataframe(quote_view[["Ticker", "Cena", "Zmiana dzienna", "Status"]], use_container_width=True, hide_index=True)
         chart_options = [t for t in quote_tickers]
         chart_ticker = st.selectbox("Wykres indeksu / spółki", chart_options, index=0, key="dashboard_chart_ticker")
-        try:
-            chart_hist = yf.Ticker(chart_ticker).history(period="1y", auto_adjust=True, repair=True)
-        except TypeError:
-            chart_hist = yf.Ticker(chart_ticker).history(period="1y", auto_adjust=True)
-        except Exception:
-            chart_hist = pd.DataFrame()
+        chart_hist = fetch_price_history(chart_ticker, "1y")
         if chart_hist is not None and not chart_hist.empty and "Close" in chart_hist:
             close = pd.to_numeric(chart_hist["Close"], errors="coerce").dropna()
             if not close.empty:
