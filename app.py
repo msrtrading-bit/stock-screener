@@ -76,6 +76,7 @@ def persist_state():
         }
         client.table("northstar_state").upsert(payload).execute()
         st.session_state["_storage_error"] = ""
+        st.session_state["_storage_loaded"] = True
         st.session_state["_storage_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return True
     except Exception as exc:
@@ -97,6 +98,7 @@ def init_state():
     if client is not None:
         try:
             response = client.table("northstar_state").select("*").eq("id", "primary").limit(1).execute()
+            st.session_state["_storage_loaded"] = True
             if response.data:
                 saved = response.data[0]
                 st.session_state.portfolio = pd.DataFrame(saved.get("portfolio") or [], columns=None)
