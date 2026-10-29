@@ -38,8 +38,8 @@ These weights and the scoring model are initial design hypotheses, not a claim o
 ## Data and limitations
 
 - Market/fundamental data are retrieved through yfinance / Yahoo Finance. Coverage, freshness, and accuracy vary by ticker.
-- The factor score is a heuristic ranking aid, not a forecast, investment recommendation, or validated alpha model.
-- The valuation widget uses EPS growth and a terminal P/E multiple; it is not a full DCF and should be tested across bear/base/bull assumptions.
+- The factor score is a heuristic ranking aid, not a forecast, investment recommendation, or validated alpha model. Non-positive P/E and PEG values are excluded from valuation scoring instead of being rewarded as cheap; FCF margin is used instead of absolute FCF size in the balance/FCF factor. Analyst estimate revisions (5% of the intended model weight) are not yet connected, so maximum available weighted coverage is currently 95%.
+- The valuation widget compares bear/base/bull EPS-growth and terminal-P/E assumptions and shows a simplified price-implied EPS growth check; it is not a full DCF or reverse DCF.
 - Portfolio and journal data are held in Streamlit session state in this version. Export CSV backups regularly; session data are not a durable database.
 - No broker synchronization, automatic analyst-revision feed, SEC filing pipeline, point-in-time historical database, or validated backtest is included yet.
 - No orders are placed by the app.
