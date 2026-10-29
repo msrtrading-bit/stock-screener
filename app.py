@@ -42,7 +42,6 @@ code {color:var(--ns-gold-soft);}
 WEIGHTS = {"Jakość biznesu":25, "Wzrost":20, "Wycena":25, "Bilans i FCF":15, "Momentum":10, "Rewizje / katalizatory":5}
 DEFAULT_TICKERS = "MSFT, AAPL, GOOGL, AMZN, META, NVDA, AVGO, V, MA, COST, BRK-B, JPM, LLY, UNH, SPGI, ORCL, CRM, NFLX, TSM, ASML"
 PORTFOLIO_COLUMNS = ["Ticker","Typ","Ilość","Średnia cena zakupu","Waluta","Warstwa ryzyka","Teza inwestycyjna","Data zakupu"]
-NOTE_COLUMNS = ["Data","Ticker","Decyzja","Teza","Ryzyka","Warunek unieważnienia","Cena docelowa"]
 
 def supabase_settings():
     try:
@@ -70,7 +69,6 @@ def persist_state():
         payload = {
             "id": "primary",
             "portfolio": json.loads(st.session_state.portfolio.to_json(orient="records", date_format="iso")),
-            "journal": json.loads(st.session_state.journal.to_json(orient="records", date_format="iso")),
             "notes": json.loads(json.dumps(st.session_state.notes, default=str)),
             "updated_at": datetime.utcnow().isoformat()
         }
@@ -87,7 +85,7 @@ def init_state():
     defaults = {
         "screen_results": pd.DataFrame(), "company_data": None,
         "portfolio": pd.DataFrame(columns=PORTFOLIO_COLUMNS),
-        "journal": pd.DataFrame(columns=NOTE_COLUMNS), "notes": {}
+        "notes": {}
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -102,14 +100,10 @@ def init_state():
             if response.data:
                 saved = response.data[0]
                 st.session_state.portfolio = pd.DataFrame(saved.get("portfolio") or [], columns=None)
-                st.session_state.journal = pd.DataFrame(saved.get("journal") or [], columns=None)
                 st.session_state.notes = saved.get("notes") or {}
                 for col in PORTFOLIO_COLUMNS:
                     if col not in st.session_state.portfolio.columns:
                         st.session_state.portfolio[col] = ""
-                for col in NOTE_COLUMNS:
-                    if col not in st.session_state.journal.columns:
-                        st.session_state.journal[col] = ""
                 st.session_state["_storage_loaded"] = True
         except Exception as exc:
             st.session_state["_storage_error"] = f"Nie udało się wczytać bazy: {str(exc)[:180]}"
@@ -318,18 +312,16 @@ with st.sidebar:
         st.session_state["_authenticated"] = False
         st.rerun()
 
-tabs = st.tabs(["Dashboard","Screener","Company research","Portfolio","Decision journal","Metodologia"])
+tabs = st.tabs(["Dashboard","Screener","Company research","Portfolio","Metodologia"])
 
 with tabs[0]:
     st.markdown("### Investment overview")
     p = st.session_state.portfolio
     r = st.session_state.screen_results
-    n = st.session_state.journal
-    c1,c2,c3,c4 = st.columns(4)
+    c1,c2,c3 = st.columns(3)
     c1.metric("Pozycje w portfelu",len(p))
     c2.metric("Ostatni screening",len(r))
-    c3.metric("Wpisy w dzienniku",len(n))
-    c4.metric("Horyzont","10–30+ lat")
+    c3.metric("Horyzont","10–30+ lat")
     st.divider()
     left,right = st.columns([1.2,1])
     with left:
@@ -629,43 +621,6 @@ with tabs[3]:
         st.info("Portfel jest pusty. Dodaj pozycję lub wczytaj poprzedni eksport CSV.")
 
 with tabs[4]:
-    st.markdown("### Decision journal")
-    with st.form("journal_form",clear_on_submit=True):
-        c1,c2,c3 = st.columns(3)
-        with c1: jticker = st.text_input("Ticker").strip().upper()
-        with c2: jdecision = st.selectbox("Decyzja",["Analizuję","Kupuję","Dokupuję","Trzymam","Redukuję","Sprzedaję","Odrzucam"])
-        with c3: jhorizon = st.selectbox("Horyzont",["1–3 lata","3–5 lat","5–10 lat","10+ lat"],index=3)
-        jthesis = st.text_area("Teza / powód decyzji")
-        jrisks = st.text_area("Ryzyka, które akceptuję")
-        jinvalid = st.text_input("Warunek unieważnienia tezy")
-        submitted = st.form_submit_button("Zapisz wpis",type="primary")
-        if submitted and jticker:
-            row = {"Data":date.today().isoformat(),"Ticker":jticker,"Decyzja":jdecision,"Teza":jthesis,"Ryzyka":jrisks,"Warunek unieważnienia":jinvalid,"Cena docelowa":""}
-            st.session_state.journal = pd.concat([st.session_state.journal,pd.DataFrame([row])],ignore_index=True)
-            if persist_state():
-                st.success("Wpis dodany i zapisany w bazie.")
-            else:
-                st.success("Wpis dodany w bieżącej sesji.")
-        elif submitted: st.error("Podaj ticker.")
-    journal_upload = st.file_uploader("Importuj dziennik CSV",type=["csv"],key="journal_upload")
-    if journal_upload:
-        try:
-            imported = pd.read_csv(journal_upload)
-            if {"Data","Ticker","Decyzja"}.issubset(imported.columns):
-                st.session_state.journal = imported
-                if persist_state():
-                    st.success("Wczytano i zapisano dziennik w bazie.")
-                else:
-                    st.success("Wczytano dziennik do bieżącej sesji.")
-            else: st.error("Nieprawidłowy format dziennika.")
-        except Exception as exc: st.error(f"Błąd importu: {exc}")
-    journal = st.session_state.journal
-    if not journal.empty:
-        st.dataframe(journal,use_container_width=True,hide_index=True)
-        st.download_button("Eksportuj dziennik CSV",journal.to_csv(index=False).encode("utf-8-sig"),file_name="northstar_decision_journal.csv",mime="text/csv")
-    else: st.info("Brak wpisów. Dodaj pierwszą decyzję.")
-
-with tabs[5]:
     st.markdown("### Metodologia i zasady działania")
     st.markdown("#### Docelowa alokacja portfela")
     st.dataframe(pd.DataFrame([
