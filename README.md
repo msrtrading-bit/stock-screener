@@ -1,18 +1,55 @@
-# Growth + Momentum Stock Screener
+# NORTHSTAR — Investment Research Terminal
 
-Aplikacja Streamlit do wstępnej selekcji akcji według wzrostu, momentum, jakości, wyceny i free cash flow.
+NORTHSTAR is a Streamlit research prototype for long-term equity investing. It combines a stock screener, company research card, simplified valuation scenario, portfolio tracker, and decision journal.
 
-## Uruchomienie w Streamlit Community Cloud
-- Main file path: `app.py`
-- Dependencies are listed in `requirements.txt`.
+## Run locally
 
-## Funkcje
-- Wpisywanie tickerów lub import CSV (kolumna `ticker`)
-- Scoring 0–100 i filtrowanie po kapitalizacji/płynności
-- Wzrost przychodów i zysków, momentum 6M/12M, średnia 200-dniowa
-- Uproszczone miary jakości, forward P/E, PEG i FCF
-- Ręczna ocena rewizji prognoz
-- Eksport wyników do CSV
+    pip install -r requirements.txt
+    streamlit run app.py
 
-## Ograniczenia
-Dane pochodzą z Yahoo Finance przez yfinance i mogą być niepełne, opóźnione lub błędne. Rewizje prognoz są oceniane ręcznie. Scoring jest heurystyką do tworzenia listy do dalszej analizy, a nie rekomendacją inwestycyjną. Aplikacja nie zawiera pełnego backtestu point-in-time ani danych o spółkach wycofanych z rynku.
+## Deploy to Streamlit Community Cloud
+
+1. Open Streamlit Community Cloud and connect this GitHub repository.
+2. Select branch main.
+3. Set Main file path to app.py.
+4. Deploy. Dependencies are in requirements.txt.
+
+## Current modules
+
+- **Dashboard** — portfolio snapshot, recent screening results, and target allocation.
+- **Screener** — manually entered ticker universe or CSV import, factor score, coverage indicator, filters, and CSV export.
+- **Company research** — market data, price history, fundamental metrics, simplified EPS/terminal-P/E valuation scenario, and an editable thesis.
+- **Portfolio** — manually tracked holdings, optional market-price refresh, position sizing by risk layer, and CSV import/export.
+- **Decision journal** — thesis, risks, decision, and invalidation condition.
+- **Methodology** — target allocation, initial risk limits, scoring weights, and limitations.
+
+## NORTHSTAR starting allocation
+
+| Layer | Target |
+|---|---:|
+| Broad equity ETF core | 50% |
+| Quality companies | 25% |
+| Aggressive growth | 15% |
+| Special situations / speculative | 5% |
+| Flexible equity sleeve | 5% |
+
+These weights and the scoring model are initial design hypotheses, not a claim of optimality or guaranteed performance. A 100% equity portfolio can lose more than 50% in a severe drawdown.
+
+## Data and limitations
+
+- Market/fundamental data are retrieved through yfinance / Yahoo Finance. Coverage, freshness, and accuracy vary by ticker.
+- The factor score is a heuristic ranking aid, not a forecast, investment recommendation, or validated alpha model.
+- The valuation widget uses EPS growth and a terminal P/E multiple; it is not a full DCF and should be tested across bear/base/bull assumptions.
+- Portfolio and journal data are held in Streamlit session state in this version. Export CSV backups regularly; session data are not a durable database.
+- No broker synchronization, automatic analyst-revision feed, SEC filing pipeline, point-in-time historical database, or validated backtest is included yet.
+- No orders are placed by the app.
+
+## Next development stages
+
+1. Persistent database for holdings, theses, and journal.
+2. Better sector-aware fundamentals and valuation models.
+3. ETF look-through exposure and sector/concentration checks.
+4. SEC filings and estimate-revision data sources.
+5. Point-in-time backtesting with delisted stocks, dividends, transaction costs, and out-of-sample validation.
+
+NORTHSTAR is a research tool, not financial advice.
