@@ -8,13 +8,34 @@ st.set_page_config(page_title="NORTHSTAR | Investment Research", page_icon="✦"
 
 st.markdown("""
 <style>
-.stApp {background: radial-gradient(ellipse at 10% 0%, #17283a 0%, #0b111a 48%, #080d13 100%); color:#e8edf5;}
-.block-container {padding-top: 1.8rem; max-width: 1500px;}
-[data-testid="stMetric"] {background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08); padding:14px 16px; border-radius:12px;}
-h1,h2,h3 {letter-spacing:-.035em;}
-.ns-eyebrow {color:#87a9c8; text-transform:uppercase; letter-spacing:.16em; font-size:.72rem; font-weight:700;}
-.ns-card {background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.09); border-radius:14px; padding:18px;}
-div[data-testid="stTabs"] button {font-weight:600;}
+:root { --ns-gold:#d7bb78; --ns-gold-soft:#f0dca5; --ns-muted:#8b9bad; --ns-line:rgba(166,188,210,.15); }
+.stApp {background:radial-gradient(ellipse at 12% -8%, #1a2c40 0%, #0c1420 38%, #080d14 78%); color:#e8eef5;}
+.block-container {padding-top:1.2rem; padding-bottom:3rem; max-width:1640px;}
+header[data-testid="stHeader"] {background:rgba(8,13,20,.72);}
+[data-testid="stSidebar"] {background:linear-gradient(180deg,#101b29 0%,#0b121c 100%); border-right:1px solid var(--ns-line);}
+[data-testid="stSidebar"] > div:first-child {padding-top:1.2rem;}
+h1,h2,h3,h4 {letter-spacing:-.035em;}
+h1 {font-weight:650!important; letter-spacing:-.06em!important;}
+h2,h3 {font-weight:600!important;}
+p,li {line-height:1.55;}
+.ns-eyebrow {color:var(--ns-gold);text-transform:uppercase;letter-spacing:.2em;font-size:.68rem;font-weight:800;}
+.ns-hero {border:1px solid rgba(215,187,120,.24);border-radius:18px;padding:24px 26px;background:linear-gradient(115deg,rgba(215,187,120,.09),rgba(255,255,255,.025) 48%,rgba(72,115,153,.08));margin:8px 0 22px;}
+.ns-hero-title {font-size:2.3rem;font-weight:750;letter-spacing:-.075em;line-height:1.05;color:#f4f1e8;}
+.ns-hero-sub {color:#9cabbc;font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;margin-top:9px;}
+.ns-status {display:inline-block;border:1px solid rgba(215,187,120,.3);border-radius:999px;padding:5px 10px;color:var(--ns-gold-soft);font-size:.68rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;}
+[data-testid="stMetric"] {background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.018));border:1px solid var(--ns-line);padding:15px 17px;border-radius:14px;box-shadow:0 6px 22px rgba(0,0,0,.10);}
+[data-testid="stMetricLabel"] {color:#94a5b8;font-size:.75rem;font-weight:650;text-transform:uppercase;letter-spacing:.06em;}
+[data-testid="stMetricValue"] {font-weight:700;letter-spacing:-.045em;}
+div[data-testid="stTabs"] {border-bottom:1px solid var(--ns-line);margin-bottom:1.2rem;}
+div[data-testid="stTabs"] button {font-weight:650;font-size:.88rem;padding-top:.7rem;padding-bottom:.7rem;}
+div[data-testid="stTabs"] button[aria-selected="true"] {color:var(--ns-gold-soft);border-bottom-color:var(--ns-gold);}
+div[data-testid="stButton"] button[kind="primary"],div[data-testid="stFormSubmitButton"] button[kind="primary"] {background:linear-gradient(135deg,#d9c183,#b69a58);color:#10151d;border:0;font-weight:750;}
+div[data-testid="stButton"] button,div[data-testid="stDownloadButton"] button {border-radius:10px;font-weight:650;}
+div[data-testid="stDataFrame"],div[data-testid="stTable"] {border:1px solid var(--ns-line);border-radius:12px;overflow:hidden;}
+div[data-testid="stExpander"] {border:1px solid var(--ns-line);border-radius:12px;background:rgba(255,255,255,.018);}
+hr {border-color:var(--ns-line)!important;}
+small,.stCaption {color:var(--ns-muted);}
+code {color:var(--ns-gold-soft);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -22,6 +43,44 @@ WEIGHTS = {"Jakość biznesu":25, "Wzrost":20, "Wycena":25, "Bilans i FCF":15, "
 DEFAULT_TICKERS = "MSFT, AAPL, GOOGL, AMZN, META, NVDA, AVGO, V, MA, COST, BRK-B, JPM, LLY, UNH, SPGI, ORCL, CRM, NFLX, TSM, ASML"
 PORTFOLIO_COLUMNS = ["Ticker","Typ","Ilość","Średnia cena zakupu","Waluta","Warstwa ryzyka","Teza inwestycyjna","Data zakupu"]
 NOTE_COLUMNS = ["Data","Ticker","Decyzja","Teza","Ryzyka","Warunek unieważnienia","Cena docelowa"]
+
+def supabase_settings():
+    try:
+        cfg = st.secrets.get("supabase", {})
+        return str(cfg.get("url", "")).strip(), str(cfg.get("service_role_key", "")).strip()
+    except Exception:
+        return "", ""
+
+def get_supabase_client():
+    url, key = supabase_settings()
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+        return create_client(url, key)
+    except Exception as exc:
+        st.session_state["_storage_error"] = f"Nie udało się połączyć z bazą: {str(exc)[:180]}"
+        return None
+
+def persist_state():
+    client = get_supabase_client()
+    if client is None:
+        return False
+    try:
+        payload = {
+            "id": "primary",
+            "portfolio": json.loads(st.session_state.portfolio.to_json(orient="records", date_format="iso")),
+            "journal": json.loads(st.session_state.journal.to_json(orient="records", date_format="iso")),
+            "notes": json.loads(json.dumps(st.session_state.notes, default=str)),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        client.table("northstar_state").upsert(payload).execute()
+        st.session_state["_storage_error"] = ""
+        st.session_state["_storage_saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return True
+    except Exception as exc:
+        st.session_state["_storage_error"] = f"Zapis do bazy nie powiódł się: {str(exc)[:180]}"
+        return False
 
 def init_state():
     defaults = {
@@ -32,6 +91,27 @@ def init_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    if st.session_state.get("_db_loaded"):
+        return
+    client = get_supabase_client()
+    if client is not None:
+        try:
+            response = client.table("northstar_state").select("*").eq("id", "primary").limit(1).execute()
+            if response.data:
+                saved = response.data[0]
+                st.session_state.portfolio = pd.DataFrame(saved.get("portfolio") or [], columns=None)
+                st.session_state.journal = pd.DataFrame(saved.get("journal") or [], columns=None)
+                st.session_state.notes = saved.get("notes") or {}
+                for col in PORTFOLIO_COLUMNS:
+                    if col not in st.session_state.portfolio.columns:
+                        st.session_state.portfolio[col] = ""
+                for col in NOTE_COLUMNS:
+                    if col not in st.session_state.journal.columns:
+                        st.session_state.journal[col] = ""
+                st.session_state["_storage_loaded"] = True
+        except Exception as exc:
+            st.session_state["_storage_error"] = f"Nie udało się wczytać bazy: {str(exc)[:180]}"
+    st.session_state["_db_loaded"] = True
 
 def num(value):
     try:
@@ -187,13 +267,43 @@ def quality_gate(sector, operating_margin, roe, fcf, revenue_growth):
         return "REVIEW"
     return "PASS" if all(checks) else "FAIL"
 
+# Optional shared-password gate for a private single-owner research terminal.
+try:
+    app_password = str(st.secrets.get("auth", {}).get("password", "")).strip()
+except Exception:
+    app_password = ""
+if app_password and not st.session_state.get("_authenticated", False):
+    st.markdown('<div class="ns-hero"><div class="ns-eyebrow">Private equity research</div><div class="ns-hero-title">NORTHSTAR</div><div class="ns-hero-sub">Independent equity research terminal</div></div>', unsafe_allow_html=True)
+    with st.form("northstar_login"):
+        entered = st.text_input("Hasło dostępu", type="password")
+        login = st.form_submit_button("Otwórz terminal", type="primary")
+        if login:
+            if entered == app_password:
+                st.session_state["_authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Nieprawidłowe hasło.")
+    st.stop()
+
 init_state()
-st.markdown('<div class="ns-eyebrow">Long-term equity research system</div>', unsafe_allow_html=True)
-st.title("NORTHSTAR")
-st.caption("Systematyczna selekcja, wycena i kontrola portfela • Horyzont 10–30+ lat")
+st.markdown('<div class="ns-hero"><div class="ns-eyebrow">Independent equity research · Est. 2026</div><div class="ns-hero-title">NORTHSTAR <span style="color:#d7bb78;font-size:1.05rem;vertical-align:middle;">✦</span></div><div class="ns-hero-sub">Fundamentals &nbsp;·&nbsp; Valuation &nbsp;·&nbsp; Risk &nbsp;·&nbsp; Conviction</div></div>', unsafe_allow_html=True)
 with st.sidebar:
-    st.markdown("## NORTHSTAR")
+    st.markdown('<div class="ns-eyebrow">Research terminal</div><h2 style="margin-top:5px;">NORTHSTAR ✦</h2>', unsafe_allow_html=True)
     st.caption("GARP · US equities · long-term")
+    db_url, db_key = supabase_settings()
+    if db_url and db_key and st.session_state.get("_storage_loaded"):
+        st.success("Persistent storage connected")
+        if st.session_state.get("_storage_saved_at"):
+            st.caption(f"Last save: {st.session_state['_storage_saved_at']}")
+    elif db_url and db_key:
+        st.warning(st.session_state.get("_storage_error") or "Baza skonfigurowana, oczekiwanie na odczyt.")
+    else:
+        st.warning("Session-only storage · skonfiguruj Supabase, aby zachować dane między sesjami.")
+    if st.session_state.get("_storage_error"):
+        st.error(st.session_state["_storage_error"])
+    if not app_password:
+        st.caption("Access password not configured.")
+
     min_cap = st.number_input("Min. kapitalizacja (mld USD)", min_value=0.0, value=2.0, step=1.0)
     min_liquidity = st.number_input("Min. obrót dzienny (mln)", min_value=0.0, value=10.0, step=5.0)
     min_score = st.slider("Minimalny wynik screenera",0,100,65,5)
@@ -202,6 +312,9 @@ with st.sidebar:
     st.markdown("**Wagi modelu**")
     for name,weight in WEIGHTS.items(): st.write(f"{name}: **{weight}%**")
     st.caption("Wynik jest heurystyką badawczą, nie prognozą ani rekomendacją. Dane rewizji analityków nie są jeszcze podłączone, więc model obecnie nie wykorzystuje ich 5% wagi.")
+    if app_password and st.button("Zablokuj terminal", use_container_width=True):
+        st.session_state["_authenticated"] = False
+        st.rerun()
 
 tabs = st.tabs(["Dashboard","Screener","Company research","Portfolio","Decision journal","Metodologia"])
 
@@ -376,7 +489,11 @@ with tabs[2]:
             target = st.number_input("Własna cena docelowa",min_value=0.0,value=float(existing.get("Cena docelowa",0) or 0),step=1.0,key=f"target_{ticker}")
             if st.button("Zapisz decyzję",key=f"save_note_{ticker}"):
                 st.session_state.notes[ticker] = {"Data":date.today().isoformat(),"Ticker":ticker,"Decyzja":verdict,"Teza":thesis,"Ryzyka":risks,"Warunek unieważnienia":invalidation,"Cena docelowa":target}
-                st.success("Zapisano w bieżącej sesji. Wyeksportuj CSV, aby zachować kopię.")
+                if persist_state():
+                    st.success("Teza zapisana w trwałej bazie.")
+                else:
+                    st.success("Teza zapisana w bieżącej sesji.")
+                    st.warning("Brak trwałej bazy — skonfiguruj Supabase i eksportuj CSV.")
             if st.session_state.notes:
                 notes_df = pd.DataFrame(list(st.session_state.notes.values()))
                 st.download_button("Eksportuj tezy CSV",notes_df.to_csv(index=False).encode("utf-8-sig"),file_name="northstar_theses.csv",mime="text/csv")
@@ -399,7 +516,11 @@ with tabs[3]:
             if pticker and qty>0 and cost>0:
                 row = {"Ticker":pticker,"Typ":ptype,"Ilość":qty,"Średnia cena zakupu":cost,"Waluta":currency,"Warstwa ryzyka":layer,"Teza inwestycyjna":thesis,"Data zakupu":purchase_date.isoformat()}
                 st.session_state.portfolio = pd.concat([st.session_state.portfolio,pd.DataFrame([row])],ignore_index=True)
-                st.success(f"Dodano {pticker}.")
+                if persist_state():
+                    st.success(f"Dodano {pticker} i zapisano portfel.")
+                else:
+                    st.success(f"Dodano {pticker} w bieżącej sesji.")
+                    st.warning("Brak trwałej bazy — skonfiguruj Supabase i eksportuj CSV.")
             else: st.error("Podaj ticker, dodatnią ilość i cenę zakupu.")
     restore = st.file_uploader("Przywróć portfel z CSV",type=["csv"],key="portfolio_restore")
     if restore:
@@ -407,7 +528,10 @@ with tabs[3]:
             imported = pd.read_csv(restore)
             if {"Ticker","Ilość","Średnia cena zakupu","Waluta"}.issubset(imported.columns):
                 st.session_state.portfolio = imported
-                st.success("Wczytano portfel.")
+                if persist_state():
+                    st.success("Wczytano i zapisano portfel w bazie.")
+                else:
+                    st.success("Wczytano portfel do bieżącej sesji.")
             else: st.error("Plik nie zawiera wymaganych kolumn.")
         except Exception as exc: st.error(f"Błąd importu: {exc}")
     pf = st.session_state.portfolio.copy()
@@ -427,6 +551,7 @@ with tabs[3]:
             pf["P/L niezrealizowany"] = pf["Wartość rynkowa"]-pf["Koszt pozycji"]
             pf["P/L %"] = pf["P/L niezrealizowany"]/pf["Koszt pozycji"].replace(0,np.nan)
             st.session_state.portfolio = pf
+            persist_state()
             progress.empty()
             st.rerun()
         pf["Koszt pozycji"] = pd.to_numeric(pf["Ilość"],errors="coerce")*pd.to_numeric(pf["Średnia cena zakupu"],errors="coerce")
@@ -469,6 +594,7 @@ with tabs[3]:
         remove = st.selectbox("Ticker do usunięcia",["— wybierz —"]+sorted(pf["Ticker"].dropna().astype(str).unique().tolist()),key="remove_ticker")
         if st.button("Usuń wszystkie pozycje tickera",key="remove_position") and remove!="— wybierz —":
             st.session_state.portfolio = pf[pf["Ticker"]!=remove].reset_index(drop=True)
+            persist_state()
             st.rerun()
         if "Warstwa ryzyka" in pf:
             st.markdown("#### Alokacja według warstwy ryzyka — koszt zakupu")
@@ -490,7 +616,10 @@ with tabs[4]:
         if submitted and jticker:
             row = {"Data":date.today().isoformat(),"Ticker":jticker,"Decyzja":jdecision,"Teza":jthesis,"Ryzyka":jrisks,"Warunek unieważnienia":jinvalid,"Cena docelowa":""}
             st.session_state.journal = pd.concat([st.session_state.journal,pd.DataFrame([row])],ignore_index=True)
-            st.success("Wpis dodany.")
+            if persist_state():
+                st.success("Wpis dodany i zapisany w bazie.")
+            else:
+                st.success("Wpis dodany w bieżącej sesji.")
         elif submitted: st.error("Podaj ticker.")
     journal_upload = st.file_uploader("Importuj dziennik CSV",type=["csv"],key="journal_upload")
     if journal_upload:
@@ -498,7 +627,10 @@ with tabs[4]:
             imported = pd.read_csv(journal_upload)
             if {"Data","Ticker","Decyzja"}.issubset(imported.columns):
                 st.session_state.journal = imported
-                st.success("Wczytano dziennik.")
+                if persist_state():
+                    st.success("Wczytano i zapisano dziennik w bazie.")
+                else:
+                    st.success("Wczytano dziennik do bieżącej sesji.")
             else: st.error("Nieprawidłowy format dziennika.")
         except Exception as exc: st.error(f"Błąd importu: {exc}")
     journal = st.session_state.journal
