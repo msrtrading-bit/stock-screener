@@ -1,0 +1,7 @@
+# Local Streamlit secrets — never commit credentials
+.streamlit/secrets.toml
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.DS_Store
