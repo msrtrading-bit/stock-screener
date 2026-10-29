@@ -135,7 +135,9 @@ def analyze_ticker(ticker):
             "Score jakość":factors["Jakość biznesu"],"Score wzrost":factors["Wzrost"],
             "Score wycena":factors["Wycena"],"Score bilans/FCF":factors["Bilans i FCF"],
             "Score momentum":factors["Momentum"],"Wynik systemu /100":score,
-            "Pokrycie czynników (%)":available_weight,"Status":"OK",
+            "Pokrycie czynników (%)":available_weight,
+            "Bramka jakości":quality_gate(info.get("sector"), op_margin, roe, fcf, revenue_growth),
+            "Status":"OK",
             "_info":info,"_hist":hist
         }
         return result
@@ -159,6 +161,25 @@ def valuation_scenario(eps, growth, exit_pe, years, margin_safety):
     future_value = eps*((1+growth)**years)*exit_pe
     return future_value, future_value*(1-margin_safety)
 
+def quality_gate(sector, operating_margin, roe, fcf, revenue_growth):
+    """Transparent preliminary quality screen; not a buy/sell signal."""
+    sector = str(sector or "").lower()
+    financial_sector = any(x in sector for x in ["financial", "bank", "insurance"])
+    checks = []
+    if pd.notna(num(operating_margin)) and not financial_sector:
+        checks.append(num(operating_margin) > 0)
+    if pd.notna(num(roe)):
+        checks.append(num(roe) >= 0)
+    if pd.notna(num(revenue_growth)):
+        checks.append(num(revenue_growth) >= -0.10)
+    if pd.notna(num(fcf)) and not financial_sector:
+        checks.append(num(fcf) > 0)
+    # Avoid passing companies when too little evidence is available.
+    minimum_checks = 2 if financial_sector else 3
+    if len(checks) < minimum_checks:
+        return "REVIEW"
+    return "PASS" if all(checks) else "FAIL"
+
 init_state()
 st.markdown('<div class="ns-eyebrow">Long-term equity research system</div>', unsafe_allow_html=True)
 st.title("NORTHSTAR")
@@ -169,6 +190,7 @@ with st.sidebar:
     min_cap = st.number_input("Min. kapitalizacja (mld USD)", min_value=0.0, value=2.0, step=1.0)
     min_liquidity = st.number_input("Min. obrót dzienny (mln)", min_value=0.0, value=10.0, step=5.0)
     min_score = st.slider("Minimalny wynik screenera",0,100,65,5)
+    quality_only = st.checkbox("Tylko spółki z bramką jakości PASS", value=False)
     st.divider()
     st.markdown("**Wagi modelu**")
     for name,weight in WEIGHTS.items(): st.write(f"{name}: **{weight}%**")
@@ -240,13 +262,15 @@ with tabs[1]:
         if "Wynik systemu /100" in df:
             df["Decyzja systemu"] = df.apply(decision,axis=1)
             df["Filtry spełnione"] = (df["Kapitalizacja (mld)"].fillna(0)>=min_cap) & (df["Obrót dzienny (mln)"].fillna(0)>=min_liquidity) & (df["Wynik systemu /100"].fillna(0)>=min_score)
+            if quality_only:
+                df["Filtry spełnione"] = df["Filtry spełnione"] & df["Bramka jakości"].eq("PASS")
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("Przeanalizowane",len(df))
         c2.metric("Lista badawcza",int(df["Decyzja systemu"].eq("LISTA BADAWCZA").sum()) if "Decyzja systemu" in df else 0)
         c3.metric("Spełnia filtry",int(df["Filtry spełnione"].sum()) if "Filtry spełnione" in df else 0)
         valid = df["Wynik systemu /100"].dropna() if "Wynik systemu /100" in df else pd.Series(dtype=float)
         c4.metric("Mediana score",f"{valid.median():.1f}" if not valid.empty else "n/d")
-        show = ["Ticker","Nazwa","Cena","Waluta","Sektor","Kapitalizacja (mld)","Wzrost przychodów r/r","Wzrost zysków r/r","Zwrot 6M","Zwrot 12M","Forward P/E","PEG","Wynik systemu /100","Pokrycie czynników (%)","Decyzja systemu","Filtry spełnione","Status"]
+        show = ["Ticker","Nazwa","Cena","Waluta","Sektor","Kapitalizacja (mld)","Wzrost przychodów r/r","Wzrost zysków r/r","Zwrot 6M","Zwrot 12M","Forward P/E","PEG","Wynik systemu /100","Pokrycie czynników (%)","Bramka jakości","Decyzja systemu","Filtry spełnione","Status"]
         shown = df[[x for x in show if x in df]].sort_values("Wynik systemu /100",ascending=False,na_position="last")
         st.dataframe(shown,use_container_width=True,hide_index=True)
         st.download_button("Eksportuj ranking CSV",df.to_csv(index=False).encode("utf-8-sig"),file_name=f"northstar_screen_{date.today().isoformat()}.csv",mime="text/csv")
@@ -275,6 +299,8 @@ with tabs[2]:
             b.metric("NORTHSTAR score",f"{score:.1f}/100" if pd.notna(score) else "Niewystarczające dane")
             c.metric("Wzrost przychodów",pct(data.get("Wzrost przychodów r/r")))
             d.metric("Forward P/E",f"{data['Forward P/E']:.1f}×" if pd.notna(num(data.get("Forward P/E"))) else "n/d")
+            gate = data.get("Bramka jakości", "REVIEW")
+            st.caption(f"Bramka jakości: **{gate}** — wstępny filtr oparty na dostępnych danych; REVIEW oznacza, że dowodów jest za mało. Nie jest to rekomendacja kupna ani sprzedaży.")
             chart,facts = st.columns([1.2,1])
             with chart:
                 st.markdown("#### Historia kursu")
@@ -309,16 +335,28 @@ with tabs[2]:
             with v2: exit_pe = st.slider("Końcowe P/E",5,60,22,key="val_exit_pe")
             with v3: years = st.slider("Horyzont (lata)",1,15,10,key="val_years")
             with v4: mos = st.slider("Margines bezpieczeństwa (%)",0,60,25,key="val_mos")/100
+            with st.expander("Założenia scenariuszy Bear / Base / Bull", expanded=True):
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                with sc1: bear_growth = st.slider("Bear: wzrost EPS (%)", -40, 20, 0, key="bear_growth") / 100
+                with sc2: bear_pe = st.slider("Bear: końcowe P/E", 5, 35, 15, key="bear_pe")
+                with sc3: bull_growth = st.slider("Bull: wzrost EPS (%)", -10, 60, 20, key="bull_growth") / 100
+                with sc4: bull_pe = st.slider("Bull: końcowe P/E", 10, 70, 28, key="bull_pe")
             future,entry = valuation_scenario(eps,growth,exit_pe,years,mos)
+            bear_value,bear_entry = valuation_scenario(eps,bear_growth,bear_pe,years,mos)
+            bull_value,bull_entry = valuation_scenario(eps,bull_growth,bull_pe,years,mos)
             price = num(data.get("Cena"))
             if pd.notna(future) and pd.notna(price) and price>0:
-                x,y,z = st.columns(3)
-                x.metric("Wartość scenariusza na koniec",money(future,data.get("Waluta","USD")))
-                y.metric("Zwrot ceny do wartości",pct(future/price-1))
-                z.metric("Cena z marginesem bezpieczeństwa",money(entry,data.get("Waluta","USD")))
+                scenario_df = pd.DataFrame([
+                    {"Scenariusz":"Bear","Wzrost EPS":pct(bear_growth),"Końcowe P/E":bear_pe,"Wartość na koniec":money(bear_value,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(bear_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bear_value/price-1) if pd.notna(bear_value) else "n/d"},
+                    {"Scenariusz":"Base","Wzrost EPS":pct(growth),"Końcowe P/E":exit_pe,"Wartość na koniec":money(future,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(future/price-1) if pd.notna(future) else "n/d"},
+                    {"Scenariusz":"Bull","Wzrost EPS":pct(bull_growth),"Końcowe P/E":bull_pe,"Wartość na koniec":money(bull_value,data.get("Waluta","USD")),"Wartość dziś z marginesem bezpieczeństwa":money(bull_entry,data.get("Waluta","USD")),"Zwrot do wartości":pct(bull_value/price-1) if pd.notna(bull_value) else "n/d"}
+                ])
+                st.dataframe(scenario_df,use_container_width=True,hide_index=True)
                 annualized = (future/price)**(1/years)-1 if future>0 else np.nan
-                st.metric("Uproszczony annualizowany zwrot do wartości",pct(annualized))
-                st.caption("To model EPS × końcowy P/E, nie pełny DCF. Nie uwzględnia w pełni dywidend, zmian liczby akcji, cykliczności ani zmian mnożnika w trakcie okresu. Używaj bear/base/bull i sprawdzaj założenia.")
+                st.metric("Uproszczony annualizowany zwrot do wartości — Base",pct(annualized))
+                implied_growth = (price/(eps*exit_pe))**(1/years)-1 if pd.notna(eps) and eps>0 and exit_pe>0 and price>0 else np.nan
+                st.metric("Wzrost EPS rocznie implikowany przez cenę (przy Base P/E)",pct(implied_growth))
+                st.caption("Model EPS × końcowe P/E, nie pełny DCF. Wartości na koniec horyzontu nie są dzisiejszą wartością godziwą; kolumna z marginesem bezpieczeństwa to zdyskontowana jedynie przez mnożnik MOS, bez osobnej stopy dyskontowej. Implikowany wzrost jest uproszczoną kontrolą oczekiwań, nie reverse DCF.")
             else:
                 st.info("Brak dodatniego EPS do uproszczonej wyceny P/E. Dla firm stratnych potrzebny jest model EV/Sales, docelowych marż i rozwodnienia.")
             st.markdown("#### Twoja teza i decyzja")
