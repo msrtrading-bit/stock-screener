@@ -28,7 +28,7 @@ st.title("Investment Research Terminal")
 st.caption("Systematyczna selekcja spółek • analiza fundamentalna • wycena scenariuszowa • dziennik decyzji")
 st.warning("Narzędzie badawcze, nie automatyczna rekomendacja. Dane Yahoo Finance bywają niepełne/opóźnione; wynik modelu nie przewiduje przyszłych stóp zwrotu. Zweryfikuj raporty źródłowe przed transakcją.")
 
-WEIGHTS = {"Wzrost": 20, "Jakość": 20, "Momentum": 15, "Wycena": 20, "Bilans i cash flow": 15, "Rewizje / katalizatory": 10}
+WEIGHTS = {"Wzrost": 22, "Jakość": 22, "Momentum": 17, "Wycena": 22, "Bilans i cash flow": 17, "Rewizje / katalizatory": 0}
 DEFAULT_TICKERS = "NVDA, META, GOOGL, AMZN, MSFT, AVGO, TSM, MELI, PLTR, SHOP, LLY, NFLX, UBER, JPM, COST"
 
 for key, default in {
@@ -282,6 +282,23 @@ with tabs[3]:
         except Exception as exc: st.error(f"Błąd importu: {exc}")
     pf=st.session_state.portfolio.copy()
     if not pf.empty:
+        if st.button("Odśwież ceny rynkowe i P/L",key="refresh_portfolio_prices"):
+            market_prices=[]
+            progress=st.progress(0)
+            for idx, ticker in enumerate(pf["Ticker"].astype(str).tolist()):
+                try:
+                    quote=yf.Ticker(ticker).history(period="5d",auto_adjust=True)
+                    market_prices.append(float(quote["Close"].dropna().iloc[-1]) if not quote.empty else np.nan)
+                except Exception:
+                    market_prices.append(np.nan)
+                progress.progress((idx+1)/max(len(pf),1))
+            pf["Cena rynkowa"]=market_prices
+            pf["Wartość rynkowa"]=pd.to_numeric(pf["Ilość"],errors="coerce")*pf["Cena rynkowa"]
+            pf["P/L niezrealizowany"]=pf["Wartość rynkowa"]-pd.to_numeric(pf["Ilość"],errors="coerce")*pd.to_numeric(pf["Średnia cena zakupu"],errors="coerce")
+            pf["P/L %"]=pf["P/L niezrealizowany"]/(pd.to_numeric(pf["Ilość"],errors="coerce")*pd.to_numeric(pf["Średnia cena zakupu"],errors="coerce")).replace(0,np.nan)
+            st.session_state.portfolio=pf
+            progress.empty()
+            st.rerun()
         pf["Koszt pozycji"]=pd.to_numeric(pf["Ilość"],errors="coerce")*pd.to_numeric(pf["Średnia cena zakupu"],errors="coerce")
         totals=pf.groupby("Waluta")["Koszt pozycji"].sum()
         a,b=st.columns(2); a.metric("Liczba pozycji",len(pf)); b.metric("Liczba unikalnych tickerów",pf["Ticker"].nunique())
@@ -326,7 +343,7 @@ with tabs[5]:
     st.markdown("### Filozofia")
     st.write("Szukamy spółek, w których jakość biznesu i długi runway wzrostu mogą uzasadniać cenę, ale nie ignorujemy wyceny, momentum, bilansu ani ryzyka utraty kapitału. To hybryda growth, quality, value i trend/momentum — nie czysty screening najniższego P/E.")
     st.markdown("### Model scoringowy")
-    st.dataframe(pd.DataFrame([{"Czynnik":"Wzrost","Waga":"20%","Co sprawdza":"Dynamika przychodów i zysków r/r"},{"Czynnik":"Jakość","Waga":"20%","Co sprawdza":"ROE, marża operacyjna, zadłużenie"},{"Czynnik":"Momentum","Waga":"15%","Co sprawdza":"Zwroty 6M/12M i położenie względem MA50/MA200"},{"Czynnik":"Wycena","Waga":"20%","Co sprawdza":"Forward P/E, PEG i FCF yield — zależnie od dostępności"},{"Czynnik":"Bilans i cash flow","Waga":"15%","Co sprawdza":"FCF, current ratio i marża brutto"},{"Czynnik":"Rewizje / katalizatory","Waga":"10%","Co sprawdza":"Na razie ręczny research; nie punktowany automatycznie z powodu braku wiarygodnego źródła"}]),hide_index=True,use_container_width=True)
+    st.dataframe(pd.DataFrame([{"Czynnik":"Wzrost","Waga":"22%","Co sprawdza":"Dynamika przychodów i zysków r/r"},{"Czynnik":"Jakość","Waga":"22%","Co sprawdza":"ROE, marża operacyjna, zadłużenie"},{"Czynnik":"Momentum","Waga":"17%","Co sprawdza":"Zwroty 6M/12M i położenie względem MA50/MA200"},{"Czynnik":"Wycena","Waga":"22%","Co sprawdza":"Forward P/E, PEG i FCF yield — zależnie od dostępności"},{"Czynnik":"Bilans i cash flow","Waga":"17%","Co sprawdza":"FCF, current ratio i marża brutto"},{"Czynnik":"Rewizje / katalizatory","Waga":"0% (ręcznie)","Co sprawdza":"Notatka jakościowa; brak automatycznego score z powodu braku wiarygodnego źródła"}]),hide_index=True,use_container_width=True)
     st.markdown("### Reguły, których pilnujemy")
     st.markdown("- **Nie mylimy taniości z niedowartościowaniem.** Niska wycena może sygnalizować trwały problem biznesu.\n- **Nie traktujemy jednego score jako werdyktu.** Wynik tworzy kolejkę do analizy.\n- **Sprawdzamy rozwodnienie akcji, SBC, dług, cykliczność i konkurencję.** Nie wszystkie te elementy są poprawnie dostępne w darmowym feedzie.\n- **Wycena ma scenariusze.** W deep dive zmieniaj wzrost, mnożnik końcowy i margines bezpieczeństwa.\n- **Zapisujemy warunek falsyfikacji tezy.** Musi istnieć powód, który skłoni nas do zmiany zdania.\n- **Backtest dopiero po zebraniu danych point-in-time.** Nie deklarujemy skuteczności bez danych bez survivorship bias, kosztów transakcyjnych i testu poza próbą.")
     st.markdown("### Ograniczenia obecnej wersji")
