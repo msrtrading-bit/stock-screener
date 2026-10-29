@@ -394,6 +394,18 @@ with tabs[1]:
         progress.empty(); status.empty()
     if not st.session_state.screen_results.empty:
         df = public_frame(st.session_state.screen_results).copy()
+        # Keep the screener usable even when every data request fails or returns partial fields.
+        for col, default in {
+            "Wynik systemu /100": np.nan,
+            "Kapitalizacja (mld)": np.nan,
+            "Obrót dzienny (mln)": np.nan,
+            "Pokrycie czynników (%)": 0,
+            "Bramka jakości": "REVIEW",
+            "Sektor": "n/d",
+            "Status": "Brak danych"
+        }.items():
+            if col not in df.columns:
+                df[col] = default
         if "Wynik systemu /100" in df:
             df["Decyzja systemu"] = df.apply(decision,axis=1)
             df["Filtry spełnione"] = (df["Kapitalizacja (mld)"].fillna(0)>=min_cap) & (df["Obrót dzienny (mln)"].fillna(0)>=min_liquidity) & (df["Wynik systemu /100"].fillna(-1)>=min_score)
@@ -679,4 +691,4 @@ with tabs[4]:
     st.markdown("- Yahoo Finance to źródło prototypowe: dane mogą być opóźnione, niepełne lub niespójne.\n- Scoring jest heurystyczny i nie jest backtestowany; nie jest rekomendacją inwestycyjną.\n- Nie ma jeszcze automatycznego feedu rewizji analityków, SEC filings, trwałej bazy danych ani synchronizacji z brokerem.\n- Portfel i dziennik w tej wersji działają w pamięci sesji; eksportuj CSV, by zachować dane.\n- Wycena EPS × końcowe P/E jest uproszczeniem, a nie pełnym modelem DCF.")
 
 st.divider()
-st.caption(f"NORTHSTAR v3.0 • Ostatnie renderowanie: {datetime.now().strftime('%Y-%m-%d %H:%M')} • Research tool, not investment advice.")
+st.caption(f"NORTHSTAR v3.1 • Ostatnie renderowanie: {datetime.now().strftime('%Y-%m-%d %H:%M')} • Research tool, not investment advice.")
