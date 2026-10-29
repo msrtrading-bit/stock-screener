@@ -17,9 +17,9 @@ NORTHSTAR is a Streamlit research prototype for long-term equity investing. It c
 ## Current modules
 
 - **Dashboard** — portfolio snapshot, recent screening results, and target allocation.
-- **Screener** — manually entered ticker universe or CSV import, factor score, coverage indicator, filters, and CSV export.
+- **Screener** — manually entered ticker universe or CSV import, factor score, coverage indicator, optional preliminary quality gate, filters, and CSV export.
 - **Company research** — market data, price history, fundamental metrics, simplified EPS/terminal-P/E valuation scenario, and an editable thesis.
-- **Portfolio** — manually tracked holdings, optional market-price refresh, position sizing by risk layer, and CSV import/export.
+- **Portfolio** — manually tracked holdings, optional market-price refresh, position sizing by risk layer, preliminary concentration/position-limit flags, and CSV import/export. Exposure weights are calculated separately by currency until FX conversion is implemented.
 - **Decision journal** — thesis, risks, decision, and invalidation condition.
 - **Methodology** — target allocation, initial risk limits, scoring weights, and limitations.
 
