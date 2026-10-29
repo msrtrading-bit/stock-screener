@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import plotly.graph_objects as go
 from datetime import datetime, date
 
 st.set_page_config(page_title="NORTHSTAR | Investment Research", page_icon="✦", layout="wide", initial_sidebar_state="expanded")
@@ -363,7 +364,7 @@ with tabs[0]:
         else:
             st.info("Uruchom screening, aby zbudować pierwszą listę badawczą.")
     st.markdown("#### Proces decyzyjny")
-    st.write("01 — Universe → 02 — Fundamenty i jakość danych → 03 — Wycena scenariuszowa → 04 — Dopasowanie do portfela → 05 — Dziennik decyzji i przegląd.")
+    st.write("01 — Universe → 02 — Fundamenty i jakość danych → 03 — Wycena scenariuszowa → 04 — Dopasowanie do portfela → 05 — Okresowy przegląd tezy.")
 
 with tabs[1]:
     st.markdown("### Systematic stock screener")
@@ -392,10 +393,10 @@ with tabs[1]:
         st.session_state.screen_results = pd.DataFrame(rows)
         progress.empty(); status.empty()
     if not st.session_state.screen_results.empty:
-        df = public_frame(st.session_state.screen_results)
+        df = public_frame(st.session_state.screen_results).copy()
         if "Wynik systemu /100" in df:
             df["Decyzja systemu"] = df.apply(decision,axis=1)
-            df["Filtry spełnione"] = (df["Kapitalizacja (mld)"].fillna(0)>=min_cap) & (df["Obrót dzienny (mln)"].fillna(0)>=min_liquidity) & (df["Wynik systemu /100"].fillna(0)>=min_score)
+            df["Filtry spełnione"] = (df["Kapitalizacja (mld)"].fillna(0)>=min_cap) & (df["Obrót dzienny (mln)"].fillna(0)>=min_liquidity) & (df["Wynik systemu /100"].fillna(-1)>=min_score)
             if quality_only:
                 df["Filtry spełnione"] = df["Filtry spełnione"] & df["Bramka jakości"].eq("PASS")
         c1,c2,c3,c4 = st.columns(4)
@@ -404,11 +405,48 @@ with tabs[1]:
         c3.metric("Spełnia filtry",int(df["Filtry spełnione"].sum()) if "Filtry spełnione" in df else 0)
         valid = df["Wynik systemu /100"].dropna() if "Wynik systemu /100" in df else pd.Series(dtype=float)
         c4.metric("Mediana score",f"{valid.median():.1f}" if not valid.empty else "n/d")
-        show = ["Ticker","Nazwa","Cena","Waluta","Sektor","Kapitalizacja (mld)","Wzrost przychodów r/r","Wzrost zysków r/r","Zwrot 6M","Zwrot 12M","Forward P/E","PEG","Wynik systemu /100","Pokrycie czynników (%)","Bramka jakości","Decyzja systemu","Filtry spełnione","Status"]
-        shown = df[[x for x in show if x in df]].sort_values("Wynik systemu /100",ascending=False,na_position="last")
+
+        st.markdown("#### Filtry i ranking")
+        fc1,fc2,fc3 = st.columns([1.25,1,1])
+        available_sectors = sorted([str(x) for x in df.get("Sektor",pd.Series(dtype=str)).dropna().unique() if str(x) not in ["","n/d","nan"]])
+        with fc1:
+            selected_sectors = st.multiselect("Sektory",available_sectors,default=available_sectors,key="screen_sectors")
+        with fc2:
+            min_coverage = st.slider("Minimalne pokrycie danych (%)",0,95,60,5,key="screen_coverage")
+        with fc3:
+            only_pass = st.checkbox("Tylko PASS bramki jakości",value=False,key="screen_only_pass")
+        show_only_passed = st.checkbox("Pokaż tylko spółki spełniające filtry główne",value=True,key="screen_only_passed")
+        filtered = df.copy()
+        if available_sectors:
+            filtered = filtered[filtered["Sektor"].astype(str).isin(selected_sectors)]
+        if "Pokrycie czynników (%)" in filtered:
+            filtered = filtered[pd.to_numeric(filtered["Pokrycie czynników (%)"],errors="coerce").fillna(0)>=min_coverage]
+        if only_pass:
+            filtered = filtered[filtered["Bramka jakości"].eq("PASS")]
+        if show_only_passed and "Filtry spełnione" in filtered:
+            filtered = filtered[filtered["Filtry spełnione"]]
+        sort_options = ["Wynik systemu /100","Wzrost przychodów r/r","Wzrost zysków r/r","Zwrot 12M","FCF yield","ROE"]
+        sc1,sc2 = st.columns([2,1])
+        with sc1: sort_by = st.selectbox("Sortuj ranking według", [x for x in sort_options if x in filtered.columns],index=0,key="screen_sort")
+        with sc2: descending = st.toggle("Malejąco",value=True,key="screen_desc")
+        shown = filtered.sort_values(sort_by,ascending=not descending,na_position="last") if sort_by in filtered.columns else filtered
+        show = ["Ticker","Nazwa","Cena","Waluta","Sektor","Kapitalizacja (mld)","Obrót dzienny (mln)","Wzrost przychodów r/r","Wzrost zysków r/r","ROE","Marża operacyjna","FCF yield","Zwrot 6M","Zwrot 12M","Forward P/E","PEG","Wynik systemu /100","Pokrycie czynników (%)","Bramka jakości","Decyzja systemu","Filtry spełnione","Status"]
+        shown = shown[[x for x in show if x in shown.columns]]
+        st.caption(f"W rankingu: {len(shown)} z {len(df)} spółek. Brak danych nie oznacza pozytywnego sygnału.")
         st.dataframe(shown,use_container_width=True,hide_index=True)
-        st.download_button("Eksportuj ranking CSV",df.to_csv(index=False).encode("utf-8-sig"),file_name=f"northstar_screen_{date.today().isoformat()}.csv",mime="text/csv")
-        st.caption("Wynik nie jest normalizowany do 100 przy brakujących danych. Brak danych nie jest traktowany jako pozytywny sygnał. Rewizje analityków (5% wagi) nie są jeszcze podłączone, więc maksymalne dostępne pokrycie wynosi obecnie 95%.")
+        st.download_button("Eksportuj ranking CSV",shown.to_csv(index=False).encode("utf-8-sig"),file_name=f"northstar_screen_{date.today().isoformat()}.csv",mime="text/csv")
+        with st.expander("Porównanie czynników — 10 najwyżej ocenionych",expanded=False):
+            factor_cols = [x for x in ["Score jakość","Score wzrost","Score wycena","Score bilans/FCF","Score momentum"] if x in shown.columns]
+            if factor_cols and not shown.empty:
+                chart_df = shown.head(10).set_index("Ticker")[factor_cols].rename(columns={"Score jakość":"Jakość","Score wzrost":"Wzrost","Score wycena":"Wycena","Score bilans/FCF":"Bilans / FCF","Score momentum":"Momentum"})
+                fig = go.Figure()
+                for col in chart_df.columns:
+                    fig.add_trace(go.Bar(name=col,x=chart_df.index,y=chart_df[col]))
+                fig.update_layout(barmode="group",height=390,margin=dict(l=8,r=8,t=12,b=8),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(color="#DCE5EF"),yaxis=dict(range=[0,5],gridcolor="rgba(166,188,210,.12)",title="Score / 5"),xaxis=dict(title="Ticker"),legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="left",x=0))
+                st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":False})
+            else:
+                st.info("Brak wystarczających danych czynnikowych do porównania.")
+        st.caption("Wynik nie jest normalizowany do 100 przy brakujących danych. Rewizje analityków (5% wagi) nie są podłączone, więc maksymalne dostępne pokrycie wynosi 95%. Ranking jest heurystyką badawczą, nie prognozą zwrotu.")
 
 with tabs[2]:
     st.markdown("### Company research")
