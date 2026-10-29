@@ -135,10 +135,62 @@ def score_range(value, low, high, reverse=False):
     result = float(np.clip((value-low)/(high-low)*5,0,5))
     return 5-result if reverse else result
 
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_market_quotes(tickers):
+    """Fetch a compact quote board in one Yahoo Finance request, with defensive parsing."""
+    tickers = list(dict.fromkeys(str(t).strip().upper() for t in tickers if str(t).strip()))
+    if not tickers:
+        return pd.DataFrame()
+    try:
+        try:
+            prices = yf.download(
+                tickers=tickers, period="5d", interval="1d", auto_adjust=True,
+                group_by="ticker", threads=False, progress=False, repair=True, timeout=15
+            )
+        except TypeError:
+            prices = yf.download(
+                tickers=tickers, period="5d", interval="1d", auto_adjust=True,
+                group_by="ticker", threads=False, progress=False, timeout=15
+            )
+        if prices is None or prices.empty:
+            return pd.DataFrame()
+        rows = []
+        for ticker in tickers:
+            close = pd.Series(dtype=float)
+            if isinstance(prices.columns, pd.MultiIndex):
+                if ticker in prices.columns.get_level_values(0):
+                    frame = prices[ticker]
+                    if "Close" in frame.columns:
+                        close = pd.to_numeric(frame["Close"], errors="coerce").dropna()
+                elif ticker in prices.columns.get_level_values(-1):
+                    frame = prices.xs(ticker, axis=1, level=-1)
+                    if "Close" in frame.columns:
+                        close = pd.to_numeric(frame["Close"], errors="coerce").dropna()
+            elif len(tickers) == 1 and "Close" in prices.columns:
+                close = pd.to_numeric(prices["Close"], errors="coerce").dropna()
+            if close.empty:
+                rows.append({"Ticker": ticker, "Cena": np.nan, "Zmiana dzienna (%)": np.nan, "Status": "Brak notowania"})
+                continue
+            last = float(close.iloc[-1])
+            previous = float(close.iloc[-2]) if len(close) > 1 else np.nan
+            change = (last / previous - 1) if pd.notna(previous) and previous != 0 else np.nan
+            rows.append({"Ticker": ticker, "Cena": last, "Zmiana dzienna (%)": change, "Status": "OK"})
+        return pd.DataFrame(rows)
+    except Exception as exc:
+        return pd.DataFrame([{"Ticker": "—", "Cena": np.nan, "Zmiana dzienna (%)": np.nan, "Status": f"Źródło danych niedostępne: {str(exc)[:120]}"}])
+
+
 def get_info(ticker):
     obj = yf.Ticker(ticker)
-    info = obj.get_info() or {}
-    hist = obj.history(period="5y", auto_adjust=True)
+    # Fundamentals endpoint can fail independently of price history; don't discard usable quotes.
+    try:
+        info = obj.get_info() or {}
+    except Exception:
+        info = {}
+    try:
+        hist = obj.history(period="5y", auto_adjust=True, repair=True)
+    except TypeError:
+        hist = obj.history(period="5y", auto_adjust=True)
     return info, hist
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -317,6 +369,56 @@ with st.sidebar:
 tabs = st.tabs(["Dashboard","Screener","Company research","Portfolio","Metodologia"])
 
 with tabs[0]:
+    st.markdown("### Market snapshot")
+    quote_tickers = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META"]
+    qleft, qright = st.columns([1, 5])
+    with qleft:
+        refresh_quotes = st.button("Odśwież notowania", key="refresh_dashboard_quotes", use_container_width=True)
+    with qright:
+        st.caption("Ostatnie dostępne dzienne zamknięcie z Yahoo Finance — to nie jest gwarantowany feed real-time.")
+    if refresh_quotes:
+        fetch_market_quotes.clear()
+    with st.spinner("Pobieranie notowań rynku…"):
+        quotes = fetch_market_quotes(quote_tickers)
+    if not quotes.empty and quotes["Cena"].notna().any():
+        quote_view = quotes.copy()
+        quote_view["Cena"] = quote_view["Cena"].map(lambda x: f"{x:,.2f} USD" if pd.notna(x) else "n/d")
+        quote_view["Zmiana dzienna"] = quote_view["Zmiana dzienna (%)"].map(lambda x: f"{x:+.2%}" if pd.notna(x) else "n/d")
+        st.dataframe(quote_view[["Ticker", "Cena", "Zmiana dzienna", "Status"]], use_container_width=True, hide_index=True)
+        chart_options = [t for t in quote_tickers]
+        chart_ticker = st.selectbox("Wykres indeksu / spółki", chart_options, index=0, key="dashboard_chart_ticker")
+        try:
+            chart_hist = yf.Ticker(chart_ticker).history(period="1y", auto_adjust=True, repair=True)
+        except TypeError:
+            chart_hist = yf.Ticker(chart_ticker).history(period="1y", auto_adjust=True)
+        except Exception:
+            chart_hist = pd.DataFrame()
+        if chart_hist is not None and not chart_hist.empty and "Close" in chart_hist:
+            close = pd.to_numeric(chart_hist["Close"], errors="coerce").dropna()
+            if not close.empty:
+                price_fig = go.Figure()
+                price_fig.add_trace(go.Scatter(
+                    x=close.index, y=close.values, mode="lines", name=chart_ticker,
+                    line=dict(color="#D7BB78", width=2), fill="tozeroy",
+                    fillcolor="rgba(215,187,120,0.07)"
+                ))
+                price_fig.update_layout(
+                    height=300, margin=dict(l=8, r=8, t=10, b=8),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#AEBCCC", size=10), showlegend=False,
+                    xaxis=dict(showgrid=False, zeroline=False),
+                    yaxis=dict(gridcolor="rgba(160,180,200,.10)", zeroline=False, title="USD")
+                )
+                st.plotly_chart(price_fig, use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.warning(f"Yahoo Finance nie zwrócił poprawnych cen dla {chart_ticker}. Spróbuj ponownie za chwilę.")
+        else:
+            st.warning(f"Brak historii cen dla {chart_ticker}. Źródło Yahoo Finance może chwilowo nie odpowiadać.")
+    else:
+        st.warning("Nie udało się pobrać notowań z Yahoo Finance. Sprawdź ponownie za chwilę; jeśli problem się utrzymuje, otwórz Logs w Streamlit Cloud — może to być limit lub awaria źródła danych.")
+        if not quotes.empty and "Status" in quotes:
+            st.caption("Szczegóły: " + " · ".join(quotes["Status"].dropna().astype(str).unique().tolist()))
+    st.divider()
     st.markdown("### Investment overview")
     p = st.session_state.portfolio
     r = st.session_state.screen_results
@@ -691,4 +793,4 @@ with tabs[4]:
     st.markdown("- Yahoo Finance to źródło prototypowe: dane mogą być opóźnione, niepełne lub niespójne.\n- Scoring jest heurystyczny i nie jest backtestowany; nie jest rekomendacją inwestycyjną.\n- Nie ma jeszcze automatycznego feedu rewizji analityków, SEC filings, trwałej bazy danych ani synchronizacji z brokerem.\n- Portfel i dziennik w tej wersji działają w pamięci sesji; eksportuj CSV, by zachować dane.\n- Wycena EPS × końcowe P/E jest uproszczeniem, a nie pełnym modelem DCF.")
 
 st.divider()
-st.caption(f"NORTHSTAR v3.1 • Ostatnie renderowanie: {datetime.now().strftime('%Y-%m-%d %H:%M')} • Research tool, not investment advice.")
+st.caption(f"NORTHSTAR v3.2 • Ostatnie renderowanie: {datetime.now().strftime('%Y-%m-%d %H:%M')} • Research tool, not investment advice.")
