@@ -341,7 +341,26 @@ with tabs[0]:
             {"Warstwa":"Inwestycje specjalne","Cel %":5,"Rola":"Ograniczone zakłady wysokiego ryzyka"},
             {"Warstwa":"Elastyczna część akcyjna","Cel %":5,"Rola":"Dodatkowe okazje lub szeroki ETF"}
         ])
-        st.dataframe(alloc,use_container_width=True,hide_index=True)
+        fig_alloc = go.Figure(data=[go.Pie(
+            labels=alloc["Warstwa"],
+            values=alloc["Cel %"],
+            hole=.70,
+            sort=False,
+            textinfo="percent",
+            textfont=dict(size=12,color="#F1F4F8"),
+            marker=dict(colors=["#D7BB78","#7FA6C9","#8AB8A0","#D78E7D","#8DA3B8"],line=dict(color="#0B121C",width=3)),
+            hovertemplate="<b>%{label}</b><br>Cel: %{value}%<extra></extra>"
+        )])
+        fig_alloc.update_layout(
+            height=300,margin=dict(l=4,r=4,t=8,b=8),
+            paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#DCE5EF",size=11),
+            legend=dict(orientation="h",yanchor="bottom",y=-.22,xanchor="center",x=.5,font=dict(size=10)),
+            annotations=[dict(text="TARGET<br><b>100%</b>",x=.5,y=.5,showarrow=False,font=dict(size=17,color="#F2E7C9"))]
+        )
+        st.plotly_chart(fig_alloc,use_container_width=True,config={"displayModeBar":False})
+        with st.expander("Pokaż strukturę docelową"):
+            st.dataframe(alloc,use_container_width=True,hide_index=True)
         st.caption("Docelowa alokacja to punkt startowy. Całość pozostaje portfelem akcyjnym i może doświadczyć obsunięć większych niż 50%.")
     with right:
         st.markdown("#### Ostatni ranking")
@@ -426,7 +445,12 @@ with tabs[2]:
             chart,facts = st.columns([1.2,1])
             with chart:
                 st.markdown("#### Historia kursu")
-                if not hist.empty and "Close" in hist: st.line_chart(hist["Close"].dropna(),height=260)
+                if not hist.empty and "Close" in hist:
+                    close_series = hist["Close"].dropna()
+                    fig_price = go.Figure()
+                    fig_price.add_trace(go.Scatter(x=close_series.index,y=close_series.values,mode="lines",name="Adjusted close",line=dict(color="#D7BB78",width=2),fill="tozeroy",fillcolor="rgba(215,187,120,0.08)"))
+                    fig_price.update_layout(height=300,margin=dict(l=4,r=4,t=8,b=4),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(color="#AEBCCC",size=10),showlegend=False,xaxis=dict(showgrid=False,zeroline=False),yaxis=dict(gridcolor="rgba(160,180,200,.10)",zeroline=False,tickprefix=f"{data.get('Waluta','USD')} "))
+                    st.plotly_chart(fig_price,use_container_width=True,config={"displayModeBar":False})
                 st.markdown("#### Momentum")
                 st.dataframe(pd.DataFrame([
                     {"Miara":"Zwrot 3M","Wartość":pct(data.get("Zwrot 3M"))},
