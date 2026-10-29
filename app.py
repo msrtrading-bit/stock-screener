@@ -430,12 +430,39 @@ with tabs[3]:
             progress.empty()
             st.rerun()
         pf["Koszt pozycji"] = pd.to_numeric(pf["Ilość"],errors="coerce")*pd.to_numeric(pf["Średnia cena zakupu"],errors="coerce")
+        market_values = pd.to_numeric(pf.get("Wartość rynkowa",pd.Series(np.nan,index=pf.index)),errors="coerce")
+        pf["_wartość_do_analizy"] = market_values.where(market_values>0,pf["Koszt pozycji"])
+        pf["Waga w walucie (%)"] = np.nan
+        pf["Limit pozycji (%)"] = np.nan
+        for idx, row in pf.iterrows():
+            layer_name = str(row.get("Warstwa ryzyka","")).lower()
+            if "specjal" in layer_name:
+                pf.loc[idx,"Limit pozycji (%)"] = 1.0
+            elif "agresywn" in layer_name:
+                pf.loc[idx,"Limit pozycji (%)"] = 3.0
+            elif "jakości" in layer_name or "jakosci" in layer_name:
+                pf.loc[idx,"Limit pozycji (%)"] = 5.0
+        pf["_wartość pozycji"] = pf.groupby(["Ticker","Waluta"],dropna=False)["_wartość_do_analizy"].transform("sum")
+        pf["_wartość waluty"] = pf.groupby("Waluta",dropna=False)["_wartość_do_analizy"].transform("sum")
+        pf["Waga w walucie (%)"] = 100*pf["_wartość pozycji"]/pf["_wartość waluty"].replace(0,np.nan)
+        pf["Kontrola limitu"] = np.where(
+            pf["Limit pozycji (%)"].isna(),"bez limitu modelu",
+            np.where(pf["Waga w walucie (%)"].isna(),"brak danych",
+                np.where(pf["Waga w walucie (%)"]>pf["Limit pozycji (%)"],"PRZEKROCZENIE","OK")
+            )
+        )
         cost_by_currency = pf.groupby("Waluta",dropna=False)["Koszt pozycji"].sum().reset_index()
         c1,c2,c3 = st.columns(3)
         c1.metric("Pozycje",len(pf))
         c2.metric("Unikalne tickery",pf["Ticker"].nunique())
         c3.metric("Waluty",pf["Waluta"].nunique())
-        st.dataframe(pf,use_container_width=True,hide_index=True)
+        display_pf = pf.drop(columns=["_wartość_do_analizy","_wartość pozycji","_wartość waluty"],errors="ignore")
+        st.dataframe(display_pf,use_container_width=True,hide_index=True)
+        breaches = pf[pf["Kontrola limitu"]=="PRZEKROCZENIE"]
+        if not breaches.empty:
+            st.warning(f"Pozycje przekraczające orientacyjny limit warstwy: {', '.join(sorted(breaches['Ticker'].astype(str).unique()))}. Waga liczona jest osobno w obrębie każdej waluty, nie dla całego portfela.")
+        else:
+            st.caption("Limity pozycji są kontrolą orientacyjną. Wagi liczone osobno w obrębie każdej waluty; bez automatycznej konwersji FX nie są to wagi całego portfela.")
         st.markdown("#### Koszt według waluty (bez automatycznego FX)")
         st.dataframe(cost_by_currency,use_container_width=True,hide_index=True)
         st.download_button("Eksportuj portfel CSV",pf.to_csv(index=False).encode("utf-8-sig"),file_name="northstar_portfolio.csv",mime="text/csv")
